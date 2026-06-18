@@ -72,8 +72,6 @@ module "rds_proxy" {
   vpc_subnet_ids         = data.aws_subnets.private.ids
   vpc_security_group_ids = [module.rds_proxy_sg.security_group_id]
 
-  db_proxy_endpoints = {}
-
   engine_family = "SQLSERVER"
   debug_logging = false
 

@@ -39,7 +39,7 @@ module "rds" {
   engine_version       = var.db_engine_version
   instance_class       = var.db_instance_class
   license_model        = "license-included"
-  major_engine_version = split(".", var.db_engine_version)[0]
+  major_engine_version = "15.00"
 
   # Storage
   allocated_storage     = var.db_allocated_storage
@@ -74,7 +74,7 @@ module "rds" {
   enabled_cloudwatch_logs_exports = []
 
   # Parameter & Option groups
-  family                    = "sqlserver-ee-16.0"
+  family                    = "sqlserver-ee-15.0"
   create_db_parameter_group = true
   create_db_option_group    = true
 

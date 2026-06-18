@@ -129,3 +129,22 @@ terraform destroy
 - **TLS:** Enforced on RDS Proxy connections.
 - **Storage:** gp3 with encryption enabled.
 - **Deletion protection:** Disabled for dev. Enable for production workloads.
+
+## Important: RDS Proxy SQL Server Version Compatibility
+
+AWS RDS Proxy **does NOT support SQL Server 2022** (version `16.00`). Supported versions are:
+
+| SQL Server Version | Engine Version | RDS Proxy Support |
+|--------------------|---------------|-------------------|
+| SQL Server 2016 | `13.00` | ✅ Supported |
+| SQL Server 2017 | `14.00` | ✅ Supported |
+| SQL Server 2019 | `15.00` | ✅ Supported |
+| SQL Server 2022 | `16.00` | ❌ Not supported |
+
+This project uses **SQL Server 2019 (`15.00`)** to ensure RDS Proxy compatibility.
+
+If you provision an MSSQL 2022 instance and try to attach it to RDS Proxy:
+- **Via Terraform/API:** You'll get `InvalidParameterValue: Database engine SQLSERVER 16.00.x is not supported`
+- **Via AWS Console:** The instance silently won't appear in the RDS Proxy target dropdown — no error message is shown
+
+Reference: [AWS RDS Proxy limitations](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-proxy.html)

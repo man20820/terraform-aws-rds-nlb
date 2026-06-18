@@ -67,6 +67,12 @@ The hooks table and Example 5 in README.md document the action type (`runCommand
 ### RDS MSSQL Enterprise: minimum instance class is db.t3.xlarge
 Unlike Standard/Web/Express editions which support `db.t3.small` or `db.r5.large`, Enterprise Edition starts at `db.t3.xlarge` (4 vCPU, 16 GB RAM). Don't assume smaller classes will work — AWS will reject the `CreateDBInstance` call. Always reference [AWS docs](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/SQLServer.Concepts.General.InstanceClasses.html) for edition-specific minimums.
 
+### RDS Proxy does NOT support SQL Server 2022 (version 16.00)
+AWS RDS Proxy only supports SQL Server 2016 (`13.00`), 2017 (`14.00`), and 2019 (`15.00`). Attempting to register a SQL Server 2022 instance as a proxy target will fail with `InvalidParameterValue: Database engine SQLSERVER 16.00.x is not supported`. Always use version `15.00` (SQL Server 2019) when combining RDS MSSQL with RDS Proxy.
+
+### MSSQL major_engine_version must be in "XX.00" format for option groups
+AWS RDS Option Group API for SQL Server expects the major version as `16.00`, not `16`. Using `split(".", "16.00")[0]` strips the `.00` suffix and causes `InvalidParameterCombination: Cannot find major version 16 for sqlserver-ee`. Always hardcode or preserve the full `XX.00` format when passing `major_engine_version` to the RDS module.
+
 ### RDS Proxy for MSSQL uses engine_family = "SQLSERVER"
 When configuring `terraform-aws-modules/rds-proxy/aws` for MSSQL, set `engine_family = "SQLSERVER"` (not `MSSQL`, not `SQL_SERVER`). This is a common typo that causes plan-time errors.
 
