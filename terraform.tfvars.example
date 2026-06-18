@@ -1,0 +1,19 @@
+# --- Required: VPC / Subnet tag filters ---
+vpc_tag_name            = "my-vpc"
+db_subnet_tag_name      = "my-db-subnet-*"
+private_subnet_tag_name = "my-private-subnet-*"
+
+# --- Optional overrides ---
+# project_name             = "mssql-proxy"
+# environment              = "dev"
+# db_username              = "admin"
+# db_instance_class        = "db.t3.xlarge"
+# db_allocated_storage     = 20
+# db_max_allocated_storage = 100
+# db_engine_version        = "16.00"
+
+# tags = {
+#   Project     = "mssql-proxy"
+#   Environment = "dev"
+#   ManagedBy   = "terraform"
+# }
