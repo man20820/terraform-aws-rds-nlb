@@ -73,6 +73,24 @@ AWS RDS Proxy only supports SQL Server 2016 (`13.00`), 2017 (`14.00`), and 2019 
 ### MSSQL major_engine_version must be in "XX.00" format for option groups
 AWS RDS Option Group API for SQL Server expects the major version as `16.00`, not `16`. Using `split(".", "16.00")[0]` strips the `.00` suffix and causes `InvalidParameterCombination: Cannot find major version 16 for sqlserver-ee`. Always hardcode or preserve the full `XX.00` format when passing `major_engine_version` to the RDS module.
 
+### Lambda runtime preference: Node.js 22 with ESM (.mjs)
+This project uses Node.js (`nodejs22.x`) for Lambda functions, not Python. Use `.mjs` extension for ES module syntax (`import`/`export`) — the Lambda runtime auto-detects it without needing `"type": "module"` in `package.json`. AWS SDK v3 (`@aws-sdk/client-*`) is bundled in `nodejs20.x`+, so no `package.json` or dependency installation is needed for SDK-only functions. Handler reference format: `filename.handler` maps to `export async function handler` in the `.mjs` file.
+
+### NLB-to-RDS IP: DNS resolves at plan time, stale on failover
+When using an NLB with `target_type = "ip"` pointing at an RDS instance, the IP is resolved from the RDS endpoint DNS at `terraform apply` time. If RDS fails over, the target group IP becomes stale until a re-apply. Always pair this pattern with a Lambda sync function (see `lambda_nlb_updater.tf`) — both event-driven (EventBridge RDS failover events) and periodic (every 5 minutes) to handle maintenance-window IP changes without failover events.
+
+### NLB target group updates: always deregister before registering new IP
+When updating NLB IP targets, deregister stale targets before registering the new one. Registering the new IP while old ones remain causes the NLB to round-robin across both, sending ~50% of connections to a dead target. The Lambda updater pattern handles this correctly: fetch current targets → deregister stale ones → register new IP.
+
+### archive provider required for Lambda zip packaging in Terraform
+Using `data "archive_file"` to package Lambda source code requires declaring `hashicorp/archive ~> 2.0` in `required_providers`. This is easy to miss since it doesn't produce a visible error until `terraform init`. Always add it alongside Lambda resources. Note: when using `terraform-aws-modules/lambda/aws` with `source_path`, the module handles packaging internally — `hashicorp/archive` is NOT needed in that case.
+
+### Circular dependency between terraform-aws-modules/lambda and terraform-aws-modules/eventbridge
+When using both modules together, `allowed_triggers` in the Lambda module references EventBridge rule ARNs, while EventBridge `targets` reference the Lambda ARN — creating a cycle Terraform cannot resolve. **Fix:** omit `allowed_triggers` from the Lambda module entirely, and use standalone `aws_lambda_permission` resources instead. These only need the Lambda function name (from Lambda module) and rule ARN (from EventBridge module), breaking the cycle cleanly. Add a comment in the code explaining why `allowed_triggers` is intentionally absent.
+
+### IAM for Lambda log groups: skip logs:CreateLogGroup when Terraform manages the group
+If `aws_cloudwatch_log_group` is explicitly created in Terraform, remove `logs:CreateLogGroup` from the Lambda IAM policy. The group already exists at deploy time, and granting `CreateLogGroup` is unnecessary permission. Keep only `logs:CreateLogStream` and `logs:PutLogEvents` scoped to the specific log group ARN.
+
 ### RDS Proxy for MSSQL uses engine_family = "SQLSERVER"
 When configuring `terraform-aws-modules/rds-proxy/aws` for MSSQL, set `engine_family = "SQLSERVER"` (not `MSSQL`, not `SQL_SERVER`). This is a common typo that causes plan-time errors.
 

@@ -41,3 +41,13 @@ output "nlb_security_group_id" {
   description = "Security group ID for the Network Load Balancer"
   value       = module.nlb_sg.security_group_id
 }
+
+output "lambda_nlb_updater_function_name" {
+  description = "Name of the Lambda function that syncs NLB target group IP with RDS"
+  value       = aws_lambda_function.nlb_updater.function_name
+}
+
+output "lambda_nlb_updater_arn" {
+  description = "ARN of the Lambda function that syncs NLB target group IP with RDS"
+  value       = aws_lambda_function.nlb_updater.arn
+}
