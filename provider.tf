@@ -10,6 +10,10 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.0"
     }
+    dns = {
+      source  = "hashicorp/dns"
+      version = "~> 3.0"
+    }
   }
 
   backend "s3" {

@@ -8,7 +8,7 @@ output "rds_instance_id" {
 }
 
 output "rds_instance_endpoint" {
-  description = "The RDS instance endpoint (direct, bypass proxy)"
+  description = "The RDS instance endpoint (direct)"
   value       = module.rds.db_instance_endpoint
 }
 
@@ -17,14 +17,14 @@ output "rds_instance_port" {
   value       = module.rds.db_instance_port
 }
 
-output "rds_proxy_endpoint" {
-  description = "The RDS Proxy endpoint (use this for application connections)"
-  value       = module.rds_proxy.proxy_endpoint
+output "nlb_dns_name" {
+  description = "The NLB DNS name (use this for application connections)"
+  value       = module.nlb.dns_name
 }
 
-output "rds_proxy_arn" {
-  description = "The ARN of the RDS Proxy"
-  value       = module.rds_proxy.proxy_arn
+output "nlb_arn" {
+  description = "The ARN of the Network Load Balancer"
+  value       = module.nlb.arn
 }
 
 output "rds_credentials_secret_arn" {
@@ -37,7 +37,7 @@ output "rds_security_group_id" {
   value       = module.rds_sg.security_group_id
 }
 
-output "rds_proxy_security_group_id" {
-  description = "Security group ID for the RDS Proxy"
-  value       = module.rds_proxy_sg.security_group_id
+output "nlb_security_group_id" {
+  description = "Security group ID for the Network Load Balancer"
+  value       = module.nlb_sg.security_group_id
 }

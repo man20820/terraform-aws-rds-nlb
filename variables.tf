@@ -66,9 +66,9 @@ variable "db_max_allocated_storage" {
 }
 
 variable "db_engine_version" {
-  description = "MSSQL engine version (must be 15.00 for RDS Proxy support)"
+  description = "MSSQL engine version"
   type        = string
-  default     = "15.00"
+  default     = "16.00"
 }
 
 variable "tags" {

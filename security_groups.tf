@@ -15,14 +15,14 @@ module "rds_sg" {
   description = "Security group for RDS MSSQL instance"
   vpc_id      = data.aws_vpc.this.id
 
-  # Allow inbound from RDS Proxy SG on MSSQL port
+  # Allow inbound from NLB SG on MSSQL port
   ingress_with_source_security_group_id = [
     {
       from_port                = 1433
       to_port                  = 1433
       protocol                 = "tcp"
-      description              = "MSSQL access from RDS Proxy"
-      source_security_group_id = module.rds_proxy_sg.security_group_id
+      description              = "MSSQL access from NLB"
+      source_security_group_id = module.nlb_sg.security_group_id
     }
   ]
 
@@ -31,13 +31,13 @@ module "rds_sg" {
   tags = var.tags
 }
 
-# Security group for RDS Proxy
-module "rds_proxy_sg" {
+# Security group for Network Load Balancer
+module "nlb_sg" {
   source  = "terraform-aws-modules/security-group/aws"
   version = "~> 5.0"
 
-  name        = "${local.name_prefix}-rds-proxy-sg"
-  description = "Security group for RDS Proxy"
+  name        = "${local.name_prefix}-nlb-sg"
+  description = "Security group for Network Load Balancer"
   vpc_id      = data.aws_vpc.this.id
 
   # Allow inbound MSSQL from within the VPC
