@@ -1,23 +1,41 @@
-# Terraform AWS RDS MSSQL with RDS Proxy
+# Terraform AWS RDS MSSQL with Network Load Balancer
 
-Provisions an AWS RDS SQL Server Enterprise instance on a DB subnet and an RDS Proxy on a private subnet in the Jakarta region (`ap-southeast-3`).
+Provisions an AWS RDS SQL Server Enterprise instance on a DB subnet with a Network Load Balancer (NLB) in front, deployed in the Jakarta region (`ap-southeast-3`). A Lambda function keeps the NLB target group in sync with the RDS endpoint IP on failover.
+
+> Forked from a previous RDS + RDS Proxy setup. RDS Proxy was replaced with an NLB to avoid [SQL Server version compatibility limitations](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-proxy.html) and to support SQL Server 2022.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                       VPC                           │
-│                                                     │
-│  ┌──────────────────┐     ┌──────────────────────┐ │
-│  │  Private Subnets │     │     DB Subnets       │ │
-│  │                  │     │                      │ │
-│  │  ┌────────────┐  │     │  ┌────────────────┐  │ │
-│  │  │ RDS Proxy  │──┼─────┼─▶│ RDS MSSQL EE   │  │ │
-│  │  │ (port 1433)│  │     │  │ (db.t3.xlarge) │  │ │
-│  │  └────────────┘  │     │  └────────────────┘  │ │
-│  └──────────────────┘     └──────────────────────┘ │
-└─────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                              VPC                                      │
+│                                                                      │
+│  ┌─────────────────────────┐       ┌─────────────────────────────┐  │
+│  │     Private Subnets     │       │        DB Subnets            │  │
+│  │                         │       │                              │  │
+│  │  ┌───────────────────┐  │       │  ┌───────────────────────┐  │  │
+│  │  │   NLB (TCP:1433)  │──┼───────┼─▶│  RDS MSSQL Enterprise │  │  │
+│  │  └───────────────────┘  │       │  │  (db.t3.xlarge)        │  │  │
+│  │           ▲              │       │  └───────────────────────┘  │  │
+│  └───────────┼─────────────┘       └─────────────────────────────┘  │
+│              │                                     ▲                  │
+│              │                                     │                  │
+│  ┌───────────┼─────────────────────────────────────┼──────────────┐  │
+│  │    EventBridge                          Lambda (IP Updater)    │  │
+│  │  • RDS failover events ──────────────▶  Resolves RDS DNS      │  │
+│  │  • Every 5 minutes    ──────────────▶  Updates NLB targets    │  │
+│  └────────────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────────┘
 ```
+
+## How It Works
+
+1. **NLB** listens on TCP port 1433 and forwards traffic to an IP-type target group.
+2. At deploy time, the RDS endpoint DNS is resolved and the IP is registered as the initial target.
+3. A **Lambda function** (`update_nlb_target.mjs`) handles IP drift:
+   - Triggered by **EventBridge** on RDS failover events (`RDS-EVENT-0049/0050/0051/0053`).
+   - Also runs on a **5-minute schedule** as a safety net.
+   - Resolves the RDS endpoint, deregisters stale IPs, and registers the current IP.
 
 ## Prerequisites
 
@@ -30,7 +48,7 @@ Provisions an AWS RDS SQL Server Enterprise instance on a DB subnet and an RDS P
 
 ### 1. Configure backend
 
-Edit `provider.tf` and replace `CHANGE_ME` with your S3 bucket name:
+Edit `provider.tf` and set your S3 bucket name:
 
 ```hcl
 backend "s3" {
@@ -54,33 +72,21 @@ db_subnet_tag_name      = "db-subnet-*"
 private_subnet_tag_name = "private-subnet-*"
 ```
 
-> **Note:** The subnet tag filters support wildcards. Use `*` to match multiple subnets (e.g. `private-subnet-*` matches `private-subnet-1a`, `private-subnet-1b`).
+> **Note:** Subnet tag filters support wildcards. Use `*` to match multiple subnets (e.g. `private-subnet-*` matches `private-subnet-1a`, `private-subnet-1b`).
 
-### 3. Initialize Terraform
+### 3. Deploy
 
 ```bash
 terraform init
-```
-
-### 4. Review the plan
-
-```bash
 terraform plan
-```
-
-### 5. Apply
-
-```bash
 terraform apply
 ```
 
-### 6. Get connection info
-
-After apply completes:
+### 4. Get connection info
 
 ```bash
-# RDS Proxy endpoint (use this in your application)
-terraform output rds_proxy_endpoint
+# NLB endpoint (use this in your application)
+terraform output nlb_dns_name
 
 # Direct RDS endpoint (for admin/debug only)
 terraform output rds_instance_endpoint
@@ -91,7 +97,7 @@ terraform output rds_credentials_secret_arn
 
 ## Retrieving Database Credentials
 
-The master password is stored in AWS Secrets Manager. To retrieve it:
+The master password is stored in AWS Secrets Manager:
 
 ```bash
 aws secretsmanager get-secret-value \
@@ -115,6 +121,45 @@ aws secretsmanager get-secret-value \
 | `db_allocated_storage` | Initial storage (GB) | `20` |
 | `db_max_allocated_storage` | Max autoscale storage (GB) | `100` |
 | `db_engine_version` | MSSQL engine version | `16.00` |
+| `tags` | Common tags to apply to all resources | `{}` |
+
+## Outputs
+
+| Output | Description |
+|--------|-------------|
+| `nlb_dns_name` | NLB DNS name (application connection endpoint) |
+| `nlb_arn` | ARN of the Network Load Balancer |
+| `rds_instance_endpoint` | Direct RDS endpoint (admin use) |
+| `rds_instance_id` | RDS instance identifier |
+| `rds_instance_port` | RDS instance port |
+| `rds_credentials_secret_arn` | Secrets Manager secret ARN |
+| `rds_security_group_id` | RDS security group ID |
+| `nlb_security_group_id` | NLB security group ID |
+| `lambda_nlb_updater_function_name` | Lambda function name |
+| `lambda_nlb_updater_arn` | Lambda function ARN |
+
+## Project Structure
+
+```
+.
+├── data.tf                  # VPC and subnet data sources
+├── lambda/
+│   └── update_nlb_target.mjs  # Lambda: resolves RDS IP and updates NLB targets
+├── lambda_nlb_updater.tf    # Lambda function, EventBridge rules, permissions
+├── nlb.tf                   # Network Load Balancer, target group, listener
+├── outputs.tf               # Terraform outputs
+├── provider.tf              # Provider config and S3 backend
+├── rds.tf                   # RDS instance, Secrets Manager, subnet group
+├── security_groups.tf       # Security groups for RDS and NLB
+├── variables.tf             # Input variables
+└── terraform.tfvars.example # Example variable values
+```
+
+## Why NLB Instead of RDS Proxy?
+
+AWS RDS Proxy does **not** support SQL Server 2022 (engine version `16.00`). The supported versions are limited to SQL Server 2016–2019. Using an NLB removes this constraint and allows running the latest SQL Server engine.
+
+The tradeoff is that NLB doesn't provide connection pooling or IAM-based authentication the way RDS Proxy does. The Lambda + EventBridge pattern handles the main operational concern (IP changes during failover) automatically.
 
 ## Destroy
 
@@ -126,25 +171,7 @@ terraform destroy
 
 - **Instance class:** `db.t3.xlarge` is the smallest supported class for MSSQL Enterprise Edition.
 - **Multi-AZ:** Disabled for non-prod cost savings. Set `multi_az = true` in `rds.tf` for production.
-- **TLS:** Enforced on RDS Proxy connections.
 - **Storage:** gp3 with encryption enabled.
 - **Deletion protection:** Disabled for dev. Enable for production workloads.
-
-## Important: RDS Proxy SQL Server Version Compatibility
-
-AWS RDS Proxy **does NOT support SQL Server 2022** (version `16.00`). Supported versions are:
-
-| SQL Server Version | Engine Version | RDS Proxy Support |
-|--------------------|---------------|-------------------|
-| SQL Server 2016 | `13.00` | ✅ Supported |
-| SQL Server 2017 | `14.00` | ✅ Supported |
-| SQL Server 2019 | `15.00` | ✅ Supported |
-| SQL Server 2022 | `16.00` | ❌ Not supported |
-
-This project uses **SQL Server 2019 (`15.00`)** to ensure RDS Proxy compatibility.
-
-If you provision an MSSQL 2022 instance and try to attach it to RDS Proxy:
-- **Via Terraform/API:** You'll get `InvalidParameterValue: Database engine SQLSERVER 16.00.x is not supported`
-- **Via AWS Console:** The instance silently won't appear in the RDS Proxy target dropdown — no error message is shown
-
-Reference: [AWS RDS Proxy limitations](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-proxy.html)
+- **Lambda runtime:** Node.js 22.x using the AWS SDK v3.
+- **DNS provider:** The `hashicorp/dns` provider is used at plan/apply time for initial target registration.
