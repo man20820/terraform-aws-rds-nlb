@@ -59,6 +59,9 @@ module "rds" {
   publicly_accessible    = false
   port                   = 1433
 
+  # Apply modifications immediately instead of waiting for the maintenance window
+  apply_immediately = true
+
   # Maintenance & Backup
   maintenance_window      = "Sun:05:00-Sun:06:00"
   backup_window           = "03:00-04:00"
@@ -80,6 +83,7 @@ module "rds" {
 
   # MSSQL does not support db_name parameter
   create_db_instance = true
+
 
   tags = var.tags
 }
