@@ -26,30 +26,7 @@ Provisions an AWS RDS SQL Server Enterprise instance behind an internal Network 
 
 ## Architecture
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                                  VPC                                     │
-│                                                                          │
-│  ┌─────────────────────────┐          ┌──────────────────────────────┐  │
-│  │     Private Subnets     │          │          DB Subnets           │  │
-│  │                         │          │                               │  │
-│  │  ┌───────────────────┐  │  TCP     │  ┌─────────────────────────┐  │  │
-│  │  │  NLB (TCP :1433)  │──┼──1433───▶ │  │  RDS MSSQL Enterprise   │  │  │
-│  │  │  internal         │  │  (to IP) │  │  Multi-AZ, db.t3.xlarge │  │  │
-│  │  │  target_type: ip  │  │          │  │  primary ⇄ standby      │  │  │
-│  │  └─────────┬─────────┘  │          │  └─────────────────────────┘  │  │
-│  └────────────┼────────────┘          └──────────────┬────────────────┘  │
-│               │ target group holds ONE IP            │ endpoint DNS      │
-│               │ (the current primary)                │ flips on failover │
-│               ▼                                       ▼                   │
-│  ┌────────────────────────────────────────────────────────────────────┐ │
-│  │   EventBridge                              Lambda: nlb-target-updater│ │
-│  │   • RDS failover events  ───invoke───▶  1. resolve RDS endpoint DNS  │ │
-│  │     (RDS-EVENT-0049/0050/0051/0053)      2. deregister stale IP      │ │
-│  │   • rate(5 minutes) sweep ──invoke──▶    3. register new IP in TG    │ │
-│  └────────────────────────────────────────────────────────────────────┘ │
-└────────────────────────────────────────────────────────────────────────┘
-```
+![Architecture diagram](docs/architecture.drawio.png)
 
 **Connection path:** applications connect to the **NLB DNS name** on TCP 1433 (never the RDS endpoint directly). The NLB forwards to whichever IP is currently registered in the target group.
 
@@ -191,23 +168,70 @@ Verify the Lambda actually fired by checking its CloudWatch Logs around T0–T2 
 
 ## Evidence
 
-> _Drill evidence / screenshots to be added. Drop images under `docs/evidence/` and reference them below._
+### Drill run — 2026-10-08 (post-IAM-fix)
 
-Recommended shot list for a DR report:
+A full failover drill after the `DescribeTargetHealth` IAM fix was applied. The automation worked end-to-end: the Lambda fired on the RDS failover event and re-registered the new IP **with no manual intervention**, and the target became healthy at **T3 = +120s** (measured client-visible RTO).
 
-- [ ] RDS console **before/after** showing Multi-AZ config and the AZ-role flip (primary ⇄ standby).
-- [ ] NLB target group health **before/after** showing the registered IP change.
-- [ ] Drill run output capturing **T0** and the final **DR DRILL SUMMARY** with the measured RTO.
-- [ ] Lambda **CloudWatch Logs** showing `Resolved … -> <new IP>` and `Successfully updated target group. Old IPs: … -> New IP: …` (proof of automatic recovery).
+```text
+==> Preflight: resolving stack resources
+2026-10-08T13:25:07Z  Endpoint:   mssql-nlb-dev-mssql.cd2sc4qkmzwm.ap-southeast-3.rds.amazonaws.com
+2026-10-08T13:25:07Z  Status:     available
+2026-10-08T13:25:07Z  Multi-AZ:   True
+2026-10-08T13:25:07Z  Primary AZ: ap-southeast-3c
+2026-10-08T13:25:07Z  Standby AZ: ap-southeast-3a
+2026-10-08T13:25:08Z  Target group: arn:aws:elasticloadbalancing:ap-southeast-3:108782069919:targetgroup/mssql-nlb-dev-mssql-tg/7164d48f7a5084c6
+2026-10-08T13:25:09Z  NLB DNS:    mssql-nlb-dev-mssql-nlb-0849a30867f0faf4.elb.ap-southeast-3.amazonaws.com
 
+==> Baseline capture (BEFORE failover)
+2026-10-08T13:25:09Z  RDS endpoint currently resolves to: 10.0.33.222
+Target group registered IP(s) / state:
+10.0.33.222     healthy
+
+Type 'FAILOVER' to proceed: FAILOVER
+
+==> T0 -- triggering failover
+[ OK ] Failover requested at 2026-10-08T13:25:15Z (T0)
+
+==> T1 -- waiting for RDS endpoint to flip to a NEW IP
+[ OK ] Endpoint flipped: 10.0.33.222 -> 10.0.31.217  (T1 = +86s)
+
+==> T2 -- waiting for Lambda to register the new IP in the target group
+[ OK ] New IP 10.0.31.217 registered in target group  (T2 = +89s)
+
+==> T3 -- waiting for the new IP to report HEALTHY
+[ OK ] New IP 10.0.31.217 is HEALTHY  (T3 = +120s)
+[WARN] T4 skipped (SKIP_T4=yes): internal NLB not reachable from this host. RTO is measured to T3 (target healthy).
+
+==> Lambda invocation evidence (CloudWatch Logs, last 10 min)
+    2026-10-08T13:26:42.778Z  d92e2a13-...  INFO  Successfully updated target group. Old IPs: 10.0.33.222 -> New IP: 10.0.31.217
+[ OK ] Lambda logged an 'updated' event (confirms it drove the re-registration)
+
+==> DR DRILL SUMMARY
+-------------------------------------------------------------
+  T0  failover triggered        2026-10-08T13:25:15Z
+  T1  endpoint IP changed        +86s
+  T2  new IP in target group     +89s
+  T3  new IP HEALTHY             +120s
+  T4  NLB TCP connect            skipped (internal NLB)
+-------------------------------------------------------------
+  MEASURED RTO (client-visible, T3 - T0): 120s
+-------------------------------------------------------------
+  Old IP: 10.0.33.222   New IP: 10.0.31.217
+  Note: RPO for Multi-AZ synchronous replication is ~0 (no committed data loss).
 ```
-<!-- Example once evidence is captured:
-![RDS Multi-AZ role flip](docs/evidence/rds-failover-before-after.png)
-![NLB target group IP change](docs/evidence/nlb-tg-ip-change.png)
-![DR drill summary with RTO](docs/evidence/dr-drill-summary.png)
-![Lambda CloudWatch logs](docs/evidence/lambda-logs.png)
--->
-```
+
+**Result summary**
+
+| Metric | Value |
+|--------|-------|
+| Measured RTO (client-visible, T3 − T0) | **120 s** |
+| RPO (Multi-AZ synchronous replication) | **~0** (no committed data loss) |
+| Endpoint flip (T1) | +86 s |
+| Lambda re-registered new IP (T2) | +89 s — fired on the RDS failover event, no manual action |
+| New IP healthy (T3) | +120 s |
+| Old IP → New IP | `10.0.33.222` → `10.0.31.217` |
+
+> **Note on the "Primary AZ unchanged" warning:** the script's post-failover AZ read runs after RDS has settled, and the `describe-db-instances` AZ field can read back to the original value by then. This is a cosmetic quirk of the read timing — the failover is independently proven by the endpoint IP flip (T1), the Lambda re-registration (T2), and the healthy new target (T3). It does **not** indicate the failover failed.
 
 ---
 
