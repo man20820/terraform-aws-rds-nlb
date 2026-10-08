@@ -44,10 +44,10 @@ output "nlb_security_group_id" {
 
 output "lambda_nlb_updater_function_name" {
   description = "Name of the Lambda function that syncs NLB target group IP with RDS"
-  value       = aws_lambda_function.nlb_updater.function_name
+  value       = module.lambda_nlb_updater.lambda_function_name
 }
 
 output "lambda_nlb_updater_arn" {
   description = "ARN of the Lambda function that syncs NLB target group IP with RDS"
-  value       = aws_lambda_function.nlb_updater.arn
+  value       = module.lambda_nlb_updater.lambda_function_arn
 }
