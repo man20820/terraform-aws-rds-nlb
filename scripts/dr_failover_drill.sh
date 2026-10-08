@@ -25,13 +25,14 @@ set -euo pipefail
 # ----------------------------- Configuration -------------------------------
 # Override any of these via environment variables or edit the defaults.
 REGION="${REGION:-ap-southeast-3}"
-DB_IDENTIFIER="${DB_IDENTIFIER:-mssql-proxy-dev-mssql}"
-TG_NAME="${TG_NAME:-mssql-proxy-dev-mssql-tg}"
-NLB_NAME="${NLB_NAME:-mssql-proxy-dev-mssql-nlb}"
+NAME_PREFIX="${NAME_PREFIX:-mssql-nlb-dev}"
+DB_IDENTIFIER="${DB_IDENTIFIER:-${NAME_PREFIX}-mssql}"
+TG_NAME="${TG_NAME:-${NAME_PREFIX}-mssql-tg}"
+NLB_NAME="${NLB_NAME:-${NAME_PREFIX}-mssql-nlb}"
 DB_PORT="${DB_PORT:-1433}"
 
 # Lambda log group — used to confirm the updater actually fired.
-LAMBDA_FN="${LAMBDA_FN:-mssql-proxy-dev-nlb-target-updater}"
+LAMBDA_FN="${LAMBDA_FN:-${NAME_PREFIX}-nlb-target-updater}"
 
 # Polling behaviour.
 POLL_INTERVAL="${POLL_INTERVAL:-3}"      # seconds between checks
@@ -176,8 +177,15 @@ while :; do
 done
 
 # ----------------------------- T4: TCP connect through NLB ------------------
+# T4 is OPTIONAL. For an INTERNAL NLB (private subnets) it is unreachable from a
+# drill host outside the VPC, so it is skipped by default. T3 (target healthy)
+# is the RTO endpoint. To run T4, invoke with SKIP_T4=no from a host inside the
+# VPC (bastion/EC2/CloudShell-in-VPC).
 T4=""
-if [ -n "$NLB_DNS" ]; then
+SKIP_T4="${SKIP_T4:-yes}"
+if [ "$SKIP_T4" = "yes" ]; then
+  warn "T4 skipped (SKIP_T4=yes): internal NLB not reachable from this host. RTO is measured to T3 (target healthy)."
+elif [ -n "$NLB_DNS" ]; then
   step "T4 — confirming TCP connect to NLB:$DB_PORT succeeds"
   while :; do
     now="$(epoch)"; (( now - T0 > MAX_WAIT )) && { warn "timed out on NLB TCP connect"; break; }
@@ -227,7 +235,11 @@ printf '  T0  failover triggered        %s\n' "$(ts)"
 printf '  T1  endpoint IP changed        %s\n' "$(fmt "$T1")"
 printf '  T2  new IP in target group     %s\n' "$(fmt "$T2")"
 printf '  T3  new IP HEALTHY             %s\n' "$(fmt "$T3")"
-[ -n "$NLB_DNS" ] && printf '  T4  NLB TCP connect OK         %s\n' "$(fmt "$T4")"
+if [ "$SKIP_T4" = "yes" ]; then
+  printf '  T4  NLB TCP connect            skipped (internal NLB)\n'
+elif [ -n "$NLB_DNS" ]; then
+  printf '  T4  NLB TCP connect OK         %s\n' "$(fmt "$T4")"
+fi
 printf '%s\n' "-------------------------------------------------------------"
 if [ -n "$T3" ]; then
   printf '  %sMEASURED RTO (client-visible, T3 - T0): %ss%s\n' "$C_BOLD" "$((T3 - T0))" "$C_RESET"
