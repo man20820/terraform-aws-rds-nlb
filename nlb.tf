@@ -24,6 +24,11 @@ module "nlb" {
       port        = 1433
       target_type = "ip"
 
+      # The RDS IP target is registered via the standalone
+      # aws_lb_target_group_attachment.mssql resource below (the IP is resolved
+      # dynamically from DNS), so disable the module's built-in attachment.
+      create_attachment = false
+
       health_check = {
         enabled             = true
         protocol            = "TCP"
