@@ -40,11 +40,19 @@ module "lambda_nlb_updater" {
   # IAM policy for target group updates
   attach_policy_statements = true
   policy_statements = {
+    # DescribeTargetHealth does NOT support resource-level permissions and must
+    # be granted on "*". Scoping it to a target-group ARN causes AccessDenied,
+    # which crashes the handler before it can register the failed-over IP.
+    allow_describe_target_health = {
+      sid       = "AllowDescribeTargetHealth"
+      effect    = "Allow"
+      actions   = ["elasticloadbalancing:DescribeTargetHealth"]
+      resources = ["*"]
+    }
     allow_target_group_updates = {
       sid    = "AllowTargetGroupUpdates"
       effect = "Allow"
       actions = [
-        "elasticloadbalancing:DescribeTargetHealth",
         "elasticloadbalancing:RegisterTargets",
         "elasticloadbalancing:DeregisterTargets",
       ]
