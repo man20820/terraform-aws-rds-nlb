@@ -18,7 +18,7 @@ terraform {
 
   backend "s3" {
     bucket = "man-jakarta-tfstate" # <-- set your S3 bucket name here
-    key    = "rds-mssql-proxy/terraform.tfstate"
+    key    = "rds-mssql-nlb/terraform.tfstate"
     region = "ap-southeast-3"
   }
 }
