@@ -15,6 +15,7 @@ module "nlb" {
 
   security_groups                  = [module.nlb_sg.security_group_id]
   enable_cross_zone_load_balancing = true
+  enable_deletion_protection       = false
 
   # Target Group
   target_groups = {
