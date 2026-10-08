@@ -53,7 +53,7 @@ module "rds" {
   password                    = random_password.master.result
 
   # Network
-  multi_az               = false
+  multi_az               = true
   db_subnet_group_name   = aws_db_subnet_group.this.name
   vpc_security_group_ids = [module.rds_sg.security_group_id]
   publicly_accessible    = false
