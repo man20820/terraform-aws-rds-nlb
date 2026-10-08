@@ -72,6 +72,10 @@ module "eventbridge_nlb_updater" {
   # Use the default event bus
   create_bus = false
 
+  # Explicit IAM role name. Without this the module falls back to the bus name
+  # ("default"), which produces an invalid/colliding role named "default".
+  role_name = "${local.name_prefix}-eventbridge-nlb-updater"
+
   rules = {
     rds-failover = {
       description = "Trigger NLB target updater on RDS failover"
